@@ -34,8 +34,20 @@ while true; do
     echo "Repozytorium Git istnieje. Wykonuję git fetch..."
     cd "$CLONE_DIR" || exit
     git fetch origin # Pobiera zmiany, ale ich nie łączy
-    # Możesz tu również sprawdzić, czy są różnice, jeśli potrzebujesz
-    echo "Sprawdzanie zakończone, brak automatycznych zmian."
+
+    # Sprawdzenie, czy są różnice między lokalnym a zdalnym repozytorium
+    LOCAL=$(git rev-parse HEAD)         # Lokalny hash
+    REMOTE=$(git rev-parse origin/main) # Zdalny hash (z gałęzi main)
+
+    if [ "$LOCAL" != "$REMOTE" ]; then
+      echo "Są zmiany w repozytorium. Wykonuję git pull i uruchamiam docker-compose..."
+      git pull origin main # Pobiera zmiany z gałęzi 'main'
+
+      # Uruchamianie docker-compose
+      docker compose -f "$COMPOSE_FILE" up --no-deps
+    else
+      echo "Brak zmian w repozytorium."
+    fi
   else
     echo "Katalog '$CLONE_DIR' nie jest repozytorium Git!"
     exit 1
