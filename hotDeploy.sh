@@ -11,15 +11,16 @@ CLONE_DIR=$(eval echo $2)
 INTERVAL=$3
 WATCH_DIRS=$4
 SCRIPT_PATH=$(realpath "$0")
+FIRST_RUN_MARKER="$CLONE_DIR/.first_run_marker"
 
-# Dodanie do crona (jeśli jeszcze nie ma)
+# Dodanie do crona, jeśli nie istnieje
 CRON_CMD="*/$INTERVAL * * * * $SCRIPT_PATH $REPO_URL $CLONE_DIR $INTERVAL $WATCH_DIRS >> /tmp/compose_cron.log 2>&1"
 (
   crontab -l 2>/dev/null | grep -Fv "$SCRIPT_PATH"
   echo "$CRON_CMD"
 ) | crontab -
 
-# Klonowanie jeśli repo nie istnieje
+# Klonowanie repozytorium jeśli nie istnieje
 if [ ! -d "$CLONE_DIR" ]; then
   echo "Klonuję repozytorium do '$CLONE_DIR'..."
   mkdir -p "$CLONE_DIR"
@@ -28,28 +29,31 @@ fi
 
 cd "$CLONE_DIR" || exit
 
-# Sprawdzenie czy katalog jest repozytorium Git
+# Sprawdzenie, czy katalog jest repozytorium Git
 if [ ! -d ".git" ]; then
   echo "Katalog '$CLONE_DIR' nie jest repozytorium Git!"
   exit 1
 fi
 
-# Pobieranie zmian
+# Pobranie zmian ze zdalnego repozytorium
 git fetch origin
 
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 
-if [ "$LOCAL" != "$REMOTE" ]; then
-  echo "Są zmiany, sprawdzam różnice..."
+if [ "$LOCAL" != "$REMOTE" ] || [ ! -f "$FIRST_RUN_MARKER" ]; then
+  echo "Są zmiany lub to pierwsze uruchomienie – sprawdzam katalogi..."
 
-  CHANGED_FILES=$(git diff --name-only HEAD origin/main)
+  if [ ! -f "$FIRST_RUN_MARKER" ]; then
+    CHANGED_FILES=$(find . -type f | sed 's|^\./||') # Wszystkie pliki
+  else
+    CHANGED_FILES=$(git diff --name-only HEAD origin/main)
+  fi
 
   IFS=',' read -ra DIRS <<<"$WATCH_DIRS"
   for dir in "${DIRS[@]}"; do
     if echo "$CHANGED_FILES" | grep -q "^$dir/"; then
-      echo "Zmiany w katalogu '$dir'. Wykonuję docker compose..."
-
+      echo "Zmiany w katalogu '$dir'. Uruchamiam docker compose..."
       if [ -f "$CLONE_DIR/$dir/compose.yml" ]; then
         docker compose -f "$CLONE_DIR/$dir/compose.yml" up --no-deps
       else
@@ -61,6 +65,7 @@ if [ "$LOCAL" != "$REMOTE" ]; then
   done
 
   git pull origin main
+  touch "$FIRST_RUN_MARKER"
 else
   echo "Brak zmian w repozytorium."
 fi
