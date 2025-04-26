@@ -55,7 +55,7 @@ if [ "$LOCAL" != "$REMOTE" ] || [ ! -f "$FIRST_RUN_MARKER" ]; then
     if echo "$CHANGED_FILES" | grep -q "^$dir/"; then
       echo "Zmiany w katalogu '$dir'. Uruchamiam docker compose..."
       if [ -f "$CLONE_DIR/$dir/compose.yml" ]; then
-        docker compose -f "$CLONE_DIR/$dir/compose.yml" up --no-deps
+        docker compose -f "$CLONE_DIR/$dir/compose.yml" up -d --no-deps
       else
         echo "Brak pliku compose.yml w katalogu '$dir'"
       fi
