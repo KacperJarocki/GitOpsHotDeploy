@@ -34,9 +34,13 @@ if [ ! -d ".git" ]; then
   exit 1
 fi
 
-# Pobranie zmian z repozytorium
+# Pobranie zmian bez mergowania
 git fetch origin
 
+# Zbieramy zmienione pliki przed pull
+CHANGED_FILES=$(git diff HEAD origin/main --name-only)
+
+# Aktualizacja lokalnego repo
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 
@@ -66,7 +70,7 @@ for dir in "${DIRS[@]}"; do
       continue
     fi
 
-    if git diff origin/main HEAD --name-only | grep -q "^$dir/compose.yml"; then
+    if echo "$CHANGED_FILES" | grep -q "^$dir/compose.yml"; then
       echo "Zmieniono compose.yml w '$dir'. Aktualizuję kontenery..."
       docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate
     else
