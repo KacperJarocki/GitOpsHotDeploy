@@ -1,58 +1,66 @@
 #!/bin/bash
 
-# Sprawdzanie, czy podano wystarczającą liczbę argumentów
-if [ $# -ne 2 ]; then
-  echo "Użycie: $0 <link_do_repo_z_composem> <katalog_docelowy>"
+# Sprawdzanie liczby argumentów
+if [ $# -ne 4 ]; then
+  echo "Użycie: $0 <repo_url> <katalog_docelowy> <co_ile_minut> <katalogi_do_obserwacji (np. appka1,appka2)>"
   exit 1
 fi
 
-# Przypisanie argumentów do zmiennych
-REPO_URL=$1          # Link do repozytorium z docker-compose
-CLONE_DIR=$(echo $2) # Katalog, do którego będzie klonowane lub z którego będą pobierane zmiany
+REPO_URL=$1
+CLONE_DIR=$(eval echo $2)
+INTERVAL=$3
+WATCH_DIRS=$4
+SCRIPT_PATH=$(realpath "$0")
 
-# Rozwiązywanie ścieżki katalogu domowego (~)
-CLONE_DIR=$(eval echo $CLONE_DIR)
+# Dodanie do crona (jeśli jeszcze nie ma)
+CRON_CMD="*/$INTERVAL * * * * $SCRIPT_PATH $REPO_URL $CLONE_DIR $INTERVAL $WATCH_DIRS >> /tmp/compose_cron.log 2>&1"
+(
+  crontab -l 2>/dev/null | grep -Fv "$SCRIPT_PATH"
+  echo "$CRON_CMD"
+) | crontab -
 
-# Ścieżka do pliku docker-compose.yml
-COMPOSE_FILE="$CLONE_DIR/compose.yml"
+# Klonowanie jeśli repo nie istnieje
+if [ ! -d "$CLONE_DIR" ]; then
+  echo "Klonuję repozytorium do '$CLONE_DIR'..."
+  mkdir -p "$CLONE_DIR"
+  git clone "$REPO_URL" "$CLONE_DIR"
+fi
 
-# Pętla sprawdzająca zmiany co minutę
-while true; do
-  # Sprawdzenie, czy katalog repozytorium istnieje
-  if [ ! -d "$CLONE_DIR" ]; then
-    echo "Katalog '$CLONE_DIR' nie istnieje. Tworzę katalog i klonuję repozytorium..."
-    mkdir -p "$CLONE_DIR"
-    git clone "$REPO_URL" "$CLONE_DIR"
-    cd "$CLONE_DIR" || exit
-    docker compose -f "$COMPOSE_FILE" up --no-deps
-  elif [ ! "$(ls -A $CLONE_DIR)" ]; then
-    echo "Katalog '$CLONE_DIR' jest pusty. Wykonuję git pull..."
-    cd "$CLONE_DIR" || exit
-    git pull origin main # Zmienna 'main' na nazwę gałęzi, jeśli używasz innej
-    docker compose -f "$COMPOSE_FILE" up --no-deps
-  elif [ -d "$CLONE_DIR/.git" ]; then
-    echo "Repozytorium Git istnieje. Wykonuję git fetch..."
-    cd "$CLONE_DIR" || exit
-    git fetch origin # Pobiera zmiany, ale ich nie łączy
+cd "$CLONE_DIR" || exit
 
-    # Sprawdzenie, czy są różnice między lokalnym a zdalnym repozytorium
-    LOCAL=$(git rev-parse HEAD)         # Lokalny hash
-    REMOTE=$(git rev-parse origin/main) # Zdalny hash (z gałęzi main)
+# Sprawdzenie czy katalog jest repozytorium Git
+if [ ! -d ".git" ]; then
+  echo "Katalog '$CLONE_DIR' nie jest repozytorium Git!"
+  exit 1
+fi
 
-    if [ "$LOCAL" != "$REMOTE" ]; then
-      echo "Są zmiany w repozytorium. Wykonuję git pull i uruchamiam docker-compose..."
-      git pull origin main # Pobiera zmiany z gałęzi 'main'
+# Pobieranie zmian
+git fetch origin
 
-      # Uruchamianie docker-compose
-      docker compose -f "$COMPOSE_FILE" up --no-deps
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse origin/main)
+
+if [ "$LOCAL" != "$REMOTE" ]; then
+  echo "Są zmiany, sprawdzam różnice..."
+
+  CHANGED_FILES=$(git diff --name-only HEAD origin/main)
+
+  IFS=',' read -ra DIRS <<<"$WATCH_DIRS"
+  for dir in "${DIRS[@]}"; do
+    if echo "$CHANGED_FILES" | grep -q "^$dir/"; then
+      echo "Zmiany w katalogu '$dir'. Wykonuję docker compose..."
+
+      if [ -f "$CLONE_DIR/$dir/compose.yml" ]; then
+        docker compose -f "$CLONE_DIR/$dir/compose.yml" up --no-deps
+      else
+        echo "Brak pliku compose.yml w katalogu '$dir'"
+      fi
     else
-      echo "Brak zmian w repozytorium."
+      echo "Brak zmian w '$dir'"
     fi
-  else
-    echo "Katalog '$CLONE_DIR' nie jest repozytorium Git!"
-    exit 1
-  fi
+  done
 
-  # Opóźnienie o 60 sekund (1 minuta)
-  sleep 60
-done
+  git pull origin main
+else
+  echo "Brak zmian w repozytorium."
+fi
