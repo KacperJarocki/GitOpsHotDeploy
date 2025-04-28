@@ -18,16 +18,19 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-# Sprawdzenie wersji Dockera
-DOCKER_VERSION=$(docker version --format '{{.Server.Version}}' | cut -d'-' -f1)
+# Pobranie tylko wersji głównej Dockera, ignorując sufiksy typu '-ce', '+azure', itp.
+RAW_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
+DOCKER_VERSION=$(echo "$RAW_VERSION" | sed 's/[^0-9.].*//') # np. '28.0.0-beta' -> '28.0.0'
+
 MIN_VERSION="28.0.0"
 
 version_ge() {
-  [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+  # Porównanie wersji semver: $1 >= $2
+  printf '%s\n%s\n' "$1" "$2" | sort -V -C
 }
 
 if ! version_ge "$DOCKER_VERSION" "$MIN_VERSION"; then
-  echo "Błąd: Wymagana wersja Dockera to przynajmniej $MIN_VERSION. Obecna wersja: $DOCKER_VERSION"
+  echo "Błąd: Wymagana wersja Dockera to przynajmniej $MIN_VERSION. Obecna wersja: $RAW_VERSION"
   exit 1
 fi
 
@@ -39,8 +42,10 @@ else
   exit 1
 fi
 
-# Unikalny komentarz crona, by uniknąć duplikatów
-CRON_TAG="# AUTO_COMPOSE_UPDATER"
+# Unikalny znacznik crona (na podstawie URL + katalogu)
+REPO_HASH=$(echo "$REPO_URL-$CLONE_DIR" | md5sum | awk '{print $1}')
+CRON_TAG="# AUTO_COMPOSE_UPDATER_$REPO_HASH"
+
 CRON_CMD="*/$INTERVAL * * * * \"$SCRIPT_PATH\" \"$REPO_URL\" \"$CLONE_DIR\" \"$INTERVAL\" \"$WATCH_DIRS\" >> /tmp/compose_cron.log 2>&1 $CRON_TAG"
 
 (
@@ -63,7 +68,7 @@ if [ ! -d ".git" ]; then
   exit 1
 fi
 
-# Wykrycie domyślnej gałęzi
+# Wykrycie domyślnej gałęzi (np. main, master)
 DEFAULT_BRANCH=$(git remote show origin | awk '/HEAD branch/ {print $NF}')
 
 # Pobranie zmian bez mergowania
