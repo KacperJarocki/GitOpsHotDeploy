@@ -99,7 +99,7 @@ for dir in "${DIRS[@]}"; do
     if [ ! -f "$MARKER_FILE" ]; then
       echo "Nowa aplikacja '$dir'. Pierwsze uruchomienie..."
       if [ -f "$COMPOSE_FILE" ]; then
-        $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --build --force-recreate
+        $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --build --force-recreate --no-dep
         touch "$MARKER_FILE"
       else
         echo "Brak pliku compose.yml w '$dir'"
@@ -109,7 +109,7 @@ for dir in "${DIRS[@]}"; do
 
     if echo "$CHANGED_FILES" | grep -q "^$dir/compose.yml"; then
       echo "Zmieniono compose.yml w '$dir'. Aktualizuję kontenery..."
-      $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --build --force-recreate
+      $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --build --force-recreate --no-dep
     else
       echo "Brak zmian w '$dir'"
     fi
